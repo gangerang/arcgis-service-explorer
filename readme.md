@@ -66,17 +66,6 @@ The script expects the ArcGIS REST endpoints to return JSON data using the param
    - **resources:** Stores metadata for each resource (folders, services, layers, and tables).
    - **fields:** Stores detailed field information for layers and tables.
 
-## Troubleshooting
-
-- **Duplicate Folder Paths:**  
-  If you see duplicate folder names (e.g., `/BV/BV/`), check the logic used to remove duplicate prefixes from service names. The script attempts to adjust service names by stripping duplicate folder names before constructing URLs.
-
-- **Missing Field Data:**  
-  Ensure that full metadata is being fetched for layers and tables. The script makes an extra request to each layer/table URL to retrieve details, including the `"fields"` key.
-
-- **Sub-Layers:**  
-  The script processes each layer listed in the service metadata. In cases where a layer is a group layer (with a non-negative `"subLayerIds"` array), both the group layer and its individual sub-layers are fetched and stored. Hierarchical relationships can be inferred from the `"parentLayerId"` value in the metadata.
-
 ## Contributing
 
 Contributions are welcome! If you have suggestions, bug reports, or improvements, please open an issue or submit a pull request.

@@ -113,7 +113,7 @@ def crawl(url, conn, parent_url=None, visited=None):
             # Continue crawling into the service to check for layers or tables.
             crawl(service_url, conn, url, visited)
 
-    # Process layers if available.
+   # Process layers if available.
     if "layers" in data:
         for layer in data["layers"]:
             layer_id = layer.get("id")
@@ -122,8 +122,9 @@ def crawl(url, conn, parent_url=None, visited=None):
             layer_data, accessible = fetch_json(layer_url)
             if accessible and layer_data:
                 insert_resource(conn, layer_url, "layer", url, True, layer_data)
-                if "fields" in layer_data:
-                    for field in layer_data["fields"]:
+                fields = layer_data.get("fields")
+                if fields:
+                    for field in fields:
                         insert_field(conn, layer_url, field)
             else:
                 # Fallback: Insert summary metadata if full details aren't available.

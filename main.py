@@ -118,20 +118,32 @@ def crawl(url, conn, parent_url=None, visited=None):
         for layer in data["layers"]:
             layer_id = layer.get("id")
             layer_url = urljoin(url + "/", str(layer_id))
-            insert_resource(conn, layer_url, "layer", url, True, layer)
-            if "fields" in layer:
-                for field in layer["fields"]:
-                    insert_field(conn, layer_url, field)
+            # Fetch the full layer metadata.
+            layer_data, accessible = fetch_json(layer_url)
+            if accessible and layer_data:
+                insert_resource(conn, layer_url, "layer", url, True, layer_data)
+                if "fields" in layer_data:
+                    for field in layer_data["fields"]:
+                        insert_field(conn, layer_url, field)
+            else:
+                # Fallback: Insert summary metadata if full details aren't available.
+                insert_resource(conn, layer_url, "layer", url, accessible, layer)
 
     # Process tables similarly.
     if "tables" in data:
         for table in data["tables"]:
             table_id = table.get("id")
             table_url = urljoin(url + "/", str(table_id))
-            insert_resource(conn, table_url, "table", url, True, table)
-            if "fields" in table:
-                for field in table["fields"]:
-                    insert_field(conn, table_url, field)
+            # Fetch the full table metadata.
+            table_data, accessible = fetch_json(table_url)
+            if accessible and table_data:
+                insert_resource(conn, table_url, "table", url, True, table_data)
+                if "fields" in table_data:
+                    for field in table_data["fields"]:
+                        insert_field(conn, table_url, field)
+            else:
+                insert_resource(conn, table_url, "table", url, accessible, table)
+
 
 def main():
     # List of base ArcGIS REST endpoints to start crawling.

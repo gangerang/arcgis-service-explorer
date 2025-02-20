@@ -13,15 +13,20 @@ SERVICE_TYPE_MAPPING = {
 }
 
 def create_tables(conn):
-    """Creates the SQLite tables to store resource metadata and fields."""
+    """
+    Creates the SQLite tables to store resource metadata and fields.
+    Uses the JSON1 extension's json_valid(...) function to ensure
+    the metadata column only stores valid JSON.
+    """
     c = conn.cursor()
+    # Add CHECK(json_valid(metadata)) constraint to ensure metadata is valid JSON.
     c.execute('''
         CREATE TABLE IF NOT EXISTS resources (
             url TEXT PRIMARY KEY,
             type TEXT,
             parent_url TEXT,
             accessible INTEGER,
-            metadata TEXT
+            metadata TEXT CHECK(json_valid(metadata))
         )
     ''')
     c.execute('''
@@ -34,6 +39,7 @@ def create_tables(conn):
         )
     ''')
     conn.commit()
+
 
 def insert_resource(conn, url, res_type, parent_url, accessible, metadata):
     """Inserts or updates a resource record into the database."""

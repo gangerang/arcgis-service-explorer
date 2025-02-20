@@ -146,19 +146,31 @@ def crawl(url, conn, parent_url=None, visited=None):
                 insert_resource(conn, table_url, "table", url, accessible, table)
 
 
+def load_servers(file_path="servers.txt"):
+    """Load server URLs from a text file."""
+    try:
+        with open(file_path, "r") as file:
+            servers = [line.strip() for line in file if line.strip()]
+        return servers
+    except FileNotFoundError:
+        print(f"Error: {file_path} not found. Please create the file and list one server per line.")
+        return []
+
 def main():
-    # List of base ArcGIS REST endpoints to start crawling.
-    servers = [
-        "https://www.lmbc.nsw.gov.au/arcgis/rest/services"
-        # Add additional server URLs as needed.
-    ]
+    # Load servers from file
+    servers = load_servers()
+
+    if not servers:
+        print("No servers found. Exiting.")
+        return
+
     # Connect to (or create) the SQLite database.
     conn = sqlite3.connect("arcgis_metadata.db")
     create_tables(conn)
-    
+
     for server in servers:
         crawl(server, conn)
-    
+
     conn.close()
     print("Crawling complete. Data saved to arcgis_metadata.db")
 

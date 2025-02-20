@@ -49,13 +49,10 @@ The script expects the ArcGIS REST endpoints to return JSON data using the param
 ## Usage
 
 1. **Configure the Servers:**  
-   Edit the `servers` list in `main.py` to include the ArcGIS REST endpoints you want to crawl. For example:
+   Create a file named `servers.txt` and list the ArcGIS REST endpoints you want to crawl, one per line. For example:
 
-   ```python
-   servers = [
-       "https://www.lmbc.nsw.gov.au/arcgis/rest/services",
-       "https://sampleserver6.arcgisonline.com/arcgis/rest/services"
-   ]
+   ```
+   https://sampleserver6.arcgisonline.com/arcgis/rest/services
    ```
 
 2. **Run the Script:**
@@ -93,3 +90,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 - [ArcGIS REST API Documentation](https://developers.arcgis.com/rest/)
 - [Requests Library Documentation](https://docs.python-requests.org/)
 - [SQLite3 Documentation](https://docs.python.org/3/library/sqlite3.html)
+

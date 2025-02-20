@@ -3,6 +3,15 @@ import sqlite3
 import json
 from urllib.parse import urljoin
 
+# Define a mapping for service classification.
+SERVICE_TYPE_MAPPING = {
+    "MapServer": "map_service",
+    "FeatureServer": "feature_service",
+    "ImageServer": "image_service",
+    "GeometryServer": "geometry_service",
+    "GPServer": "geoprocessing_service"
+}
+
 def create_tables(conn):
     """Creates the SQLite tables to store resource metadata and fields."""
     c = conn.cursor()
@@ -56,7 +65,7 @@ def fetch_json(url):
         return None, False
 
 def crawl(url, conn, parent_url=None, visited=None):
-    """Recursively crawls an ArcGIS REST endpoint."""
+    """Recursively crawls an ArcGIS REST endpoint and classifies services."""
     if visited is None:
         visited = set()
     if url in visited:
@@ -65,43 +74,51 @@ def crawl(url, conn, parent_url=None, visited=None):
     print(f"Crawling: {url}")
     
     data, accessible = fetch_json(url)
-    # Determine resource type based on expected keys
+    # Determine resource type based on returned keys.
     res_type = "unknown"
     if data:
         if "folders" in data or "services" in data:
             res_type = "server_root"
         elif "layers" in data or "tables" in data:
             res_type = "service"
+    
     # Save the current resource in the database.
     insert_resource(conn, url, res_type, parent_url, accessible, data if data else {})
     
     if not accessible or data is None:
         return
 
-    # Crawl folders
+    # Crawl folders.
     if "folders" in data:
         for folder in data["folders"]:
             folder_url = urljoin(url + "/", folder)
             crawl(folder_url, conn, url, visited)
 
-    # Crawl services
+    # Crawl services and classify them.
     if "services" in data:
         for service in data["services"]:
             service_name = service.get("name")
             service_type = service.get("type")
-            # Construct the URL for the service. This assumes the typical pattern:
-            # <base_url>/<service_name>/<service_type>
+            # Use our mapping to classify the service.
+            service_res_type = SERVICE_TYPE_MAPPING.get(service_type, "unknown_service")
+            # Avoid duplicate folder names (e.g. /BV/BV/) by checking the current folder.
+            current_folder = url.rstrip("/").split("/")[-1]
+            if current_folder.lower() not in ["rest", "services"]:
+                if service_name.startswith(current_folder + "/"):
+                    service_name = service_name[len(current_folder) + 1:]
+            # Construct the service URL.
             service_url = urljoin(url + "/", f"{service_name}/{service_type}")
+            # Insert the service resource using the classified type.
+            insert_resource(conn, service_url, service_res_type, url, True, service)
+            # Continue crawling into the service to check for layers or tables.
             crawl(service_url, conn, url, visited)
 
-    # Process layers if available. Some services provide layer metadata directly.
+    # Process layers if available.
     if "layers" in data:
         for layer in data["layers"]:
             layer_id = layer.get("id")
-            # Assuming the layer can be reached by appending its id.
             layer_url = urljoin(url + "/", str(layer_id))
             insert_resource(conn, layer_url, "layer", url, True, layer)
-            # If the layer has field metadata, store it.
             if "fields" in layer:
                 for field in layer["fields"]:
                     insert_field(conn, layer_url, field)

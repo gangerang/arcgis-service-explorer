@@ -1,0 +1,3 @@
+url,short_name,description,to_process
+https://services8.arcgis.com/LLNIdHmmdjO2qQ5q/ArcGIS/rest/services,example1,an example server that won't be processed,y
+https://sampleserver6.arcgisonline.com/arcgis/rest/services,example2,an example server that will be processed,n

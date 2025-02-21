@@ -1,3 +1,4 @@
+import csv
 import requests
 import sqlite3
 import json
@@ -234,44 +235,44 @@ def crawl(url, conn, server_url, parent_url=None, visited=None):
             else:
                 insert_resource(conn, table_url, "table", None, url, server_url, accessible_table, table)
 
-def load_servers(file_path="servers.txt"):
+def load_servers(file_path="servers.csv"):
     """
-    Load server information from a text file.
-    Expected format per line: url,short_name,description
-    For example:
-    https://sampleserver6.arcgisonline.com/arcgis/rest,SampleServer,A sample ArcGIS server.
+    Load server information from a CSV file with headers.
+    Expected header: url,short_name,description,to_process
+    Only rows where the 'to_process' field indicates truthiness will be returned.
+    Truth values (case-insensitive): y, t, true, 1
     """
     servers = []
+    truthy = {"y", "t", "true", "1"}
     try:
-        with open(file_path, "r") as file:
-            for line in file:
-                if line.strip():
-                    parts = line.strip().split(',')
-                    if len(parts) >= 3:
-                        url = parts[0].strip()
-                        short_name = parts[1].strip()
-                        description = ','.join(parts[2:]).strip()  # Handles commas in description.
+        with open(file_path, newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                to_process = row.get("to_process", "").strip().lower()
+                if to_process in truthy:
+                    url = row.get("url", "").strip()
+                    short_name = row.get("short_name", "").strip()
+                    description = row.get("description", "").strip()
+                    if url:  # Only process rows with a valid URL.
                         servers.append((url, short_name, description))
-                    else:
-                        print(f"Skipping line (not enough fields): {line}")
         return servers
     except FileNotFoundError:
-        print(f"Error: {file_path} not found. Please create the file with one server per line in the format: url,short_name,description")
+        print(f"Error: {file_path} not found. Please create the CSV file with headers: url,short_name,description,to_process")
         return []
 
 def main():
-    # Load servers from file.
+    # Load servers from CSV.
     servers = load_servers()
 
     if not servers:
-        print("No servers found. Exiting.")
+        print("No servers to process. Exiting.")
         return
 
     # Connect to (or create) the SQLite database.
     conn = sqlite3.connect("arcgis_metadata.db")
     create_tables(conn)
 
-    # Insert each server and crawl its endpoints.
+    # Insert each server into the servers table and crawl its endpoints.
     for server in servers:
         server_url, short_name, description = server
         insert_server(conn, server_url, short_name, description)

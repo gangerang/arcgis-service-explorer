@@ -3,21 +3,12 @@ import sqlite3
 import json
 from urllib.parse import urljoin
 
-# Define a mapping for service classification.
-SERVICE_TYPE_MAPPING = {
-    "MapServer": "map_service",
-    "FeatureServer": "feature_service",
-    "ImageServer": "image_service",
-    "GeometryServer": "geometry_service",
-    "GPServer": "geoprocessing_service"
-}
-
 def create_tables(conn):
     """
-    Creates the SQLite tables to store server, resource metadata and fields.
+    Creates the SQLite tables with the updated schema.
+    The resources table now includes a 'subtype' column.
     """
     c = conn.cursor()
-    # New table to store servers.
     c.execute('''
         CREATE TABLE IF NOT EXISTS servers (
             url TEXT PRIMARY KEY,
@@ -25,11 +16,11 @@ def create_tables(conn):
             description TEXT
         )
     ''')
-    # Modified resources table to include a server_url field.
     c.execute('''
         CREATE TABLE IF NOT EXISTS resources (
             url TEXT PRIMARY KEY,
             type TEXT,
+            subtype TEXT,
             parent_url TEXT,
             server_url TEXT,
             accessible INTEGER,
@@ -58,13 +49,13 @@ def insert_server(conn, url, short_name, description):
     ''', (url, short_name, description))
     conn.commit()
 
-def insert_resource(conn, url, res_type, parent_url, server_url, accessible, metadata):
+def insert_resource(conn, url, res_type, res_subtype, parent_url, server_url, accessible, metadata):
     """Inserts or updates a resource record into the database."""
     c = conn.cursor()
     c.execute('''
-        INSERT OR REPLACE INTO resources (url, type, parent_url, server_url, accessible, metadata)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (url, res_type, parent_url, server_url, int(accessible), json.dumps(metadata)))
+        INSERT OR REPLACE INTO resources (url, type, subtype, parent_url, server_url, accessible, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (url, res_type, res_subtype, parent_url, server_url, int(accessible), json.dumps(metadata)))
     conn.commit()
 
 def insert_field(conn, resource_url, field):
@@ -87,11 +78,29 @@ def fetch_json(url):
         print(f"Failed to fetch {url}: {e}")
         return None, False
 
+def classify_resource(url, data, parent_url):
+    """
+    Determines the type and subtype based on the URL and data.
+    
+    Rules:
+    - If there's no parent, this is the server (type 'server', subtype None).
+    - If the endpoint returns folders or services (and has a parent), classify as folder.
+    - If the URL ends with 'Server', classify as service; subtype is the last URL segment.
+    - Otherwise, default to 'unknown'.
+    """
+    if parent_url is None:
+        return "server", None
+    if data and ("folders" in data or "services" in data):
+        return "folder", None
+    if url.endswith("Server"):
+        subtype = url.split("/")[-1]
+        return "service", subtype
+    return "unknown", None
+
 def crawl(url, conn, server_url, parent_url=None, visited=None):
     """
-    Recursively crawls an ArcGIS REST endpoint and classifies services.
-    The server_url parameter remains the same throughout the recursion,
-    so every resource gets linked back to its originating server.
+    Recursively crawls an ArcGIS REST endpoint and classifies resources.
+    Uses the URL structure (e.g. ending in "Server") to determine if an endpoint is a service.
     """
     if visited is None:
         visited = set()
@@ -101,16 +110,12 @@ def crawl(url, conn, server_url, parent_url=None, visited=None):
     print(f"Crawling: {url}")
     
     data, accessible = fetch_json(url)
-    # Determine resource type based on returned keys.
-    res_type = "unknown"
-    if data:
-        if "folders" in data or "services" in data:
-            res_type = "server_root"
-        elif "layers" in data or "tables" in data:
-            res_type = "service"
     
-    # Save the current resource with an associated server_url.
-    insert_resource(conn, url, res_type, parent_url, server_url, accessible, data if data else {})
+    # Classify the resource.
+    res_type, res_subtype = classify_resource(url, data, parent_url)
+    
+    # Insert the current resource.
+    insert_resource(conn, url, res_type, res_subtype, parent_url, server_url, accessible, data if data else {})
     
     if not accessible or data is None:
         return
@@ -121,22 +126,20 @@ def crawl(url, conn, server_url, parent_url=None, visited=None):
             folder_url = urljoin(url + "/", folder)
             crawl(folder_url, conn, server_url, url, visited)
 
-    # Crawl services and classify them.
+    # Crawl services.
     if "services" in data:
         for service in data["services"]:
             service_name = service.get("name")
-            service_type = service.get("type")
-            # Classify the service using the mapping.
-            service_res_type = SERVICE_TYPE_MAPPING.get(service_type, "unknown_service")
-            # Adjust the service name if needed.
+            service_type = service.get("type")  # Typically ends with 'Server'
+            # Adjust service name if needed.
             current_folder = url.rstrip("/").split("/")[-1]
             if current_folder.lower() not in ["rest", "services"]:
                 if service_name.startswith(current_folder + "/"):
                     service_name = service_name[len(current_folder) + 1:]
-            # Construct the service URL.
             service_url = urljoin(url + "/", f"{service_name}/{service_type}")
-            # Insert the service resource with the same server_url.
-            insert_resource(conn, service_url, service_res_type, url, server_url, True, service)
+            # Classify based solely on the URL ending in 'Server'
+            service_res_type, service_res_subtype = classify_resource(service_url, service, url)
+            insert_resource(conn, service_url, service_res_type, service_res_subtype, url, server_url, True, service)
             crawl(service_url, conn, server_url, url, visited)
 
     # Process layers if available.
@@ -146,13 +149,13 @@ def crawl(url, conn, server_url, parent_url=None, visited=None):
             layer_url = urljoin(url + "/", str(layer_id))
             layer_data, accessible = fetch_json(layer_url)
             if accessible and layer_data:
-                insert_resource(conn, layer_url, "layer", url, server_url, True, layer_data)
+                insert_resource(conn, layer_url, "layer", None, url, server_url, True, layer_data)
                 fields = layer_data.get("fields")
                 if fields:
                     for field in fields:
                         insert_field(conn, layer_url, field)
             else:
-                insert_resource(conn, layer_url, "layer", url, server_url, accessible, layer)
+                insert_resource(conn, layer_url, "layer", None, url, server_url, accessible, layer)
 
     # Process tables similarly.
     if "tables" in data:
@@ -161,12 +164,12 @@ def crawl(url, conn, server_url, parent_url=None, visited=None):
             table_url = urljoin(url + "/", str(table_id))
             table_data, accessible = fetch_json(table_url)
             if accessible and table_data:
-                insert_resource(conn, table_url, "table", url, server_url, True, table_data)
+                insert_resource(conn, table_url, "table", None, url, server_url, True, table_data)
                 if "fields" in table_data:
                     for field in table_data["fields"]:
                         insert_field(conn, table_url, field)
             else:
-                insert_resource(conn, table_url, "table", url, server_url, accessible, table)
+                insert_resource(conn, table_url, "table", None, url, server_url, accessible, table)
 
 def load_servers(file_path="servers.txt"):
     """
@@ -184,7 +187,7 @@ def load_servers(file_path="servers.txt"):
                     if len(parts) >= 3:
                         url = parts[0].strip()
                         short_name = parts[1].strip()
-                        description = ','.join(parts[2:]).strip()  # in case description has commas
+                        description = ','.join(parts[2:]).strip()  # Handles commas in description.
                         servers.append((url, short_name, description))
                     else:
                         print(f"Skipping line (not enough fields): {line}")
@@ -194,7 +197,7 @@ def load_servers(file_path="servers.txt"):
         return []
 
 def main():
-    # Load servers from file
+    # Load servers from file.
     servers = load_servers()
 
     if not servers:
@@ -205,11 +208,10 @@ def main():
     conn = sqlite3.connect("arcgis_metadata.db")
     create_tables(conn)
 
-    # Insert each server into the servers table and then crawl.
+    # Insert each server and crawl its endpoints.
     for server in servers:
         server_url, short_name, description = server
         insert_server(conn, server_url, short_name, description)
-        # Pass the server_url down into crawl so all resources can be linked back.
         crawl(server_url, conn, server_url)
 
     conn.close()

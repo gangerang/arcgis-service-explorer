@@ -7,8 +7,10 @@ def create_tables(conn):
     """
     Creates the SQLite tables with the updated schema.
     The resources table now includes 'subtype', 'name', and 'description' columns.
+    Also creates a new 'domains' table with separate fields for the code and value.
     """
     c = conn.cursor()
+    # Table for servers.
     c.execute('''
         CREATE TABLE IF NOT EXISTS servers (
             url TEXT PRIMARY KEY,
@@ -16,6 +18,7 @@ def create_tables(conn):
             description TEXT
         )
     ''')
+    # Resources table.
     c.execute('''
         CREATE TABLE IF NOT EXISTS resources (
             url TEXT PRIMARY KEY,
@@ -30,6 +33,7 @@ def create_tables(conn):
             FOREIGN KEY(server_url) REFERENCES servers(url)
         )
     ''')
+    # Fields table.
     c.execute('''
         CREATE TABLE IF NOT EXISTS fields (
             resource_url TEXT,
@@ -37,6 +41,17 @@ def create_tables(conn):
             field_type TEXT,
             alias TEXT,
             PRIMARY KEY (resource_url, field_name),
+            FOREIGN KEY(resource_url) REFERENCES resources(url)
+        )
+    ''')
+    # Domains table: each row stores one code-value pair.
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS domains (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            resource_url TEXT,
+            field_name TEXT,
+            domain_code TEXT,
+            domain_value TEXT,
             FOREIGN KEY(resource_url) REFERENCES resources(url)
         )
     ''')
@@ -68,6 +83,30 @@ def insert_field(conn, resource_url, field):
         VALUES (?, ?, ?, ?)
     ''', (resource_url, field.get('name'), field.get('type'), field.get('alias')))
     conn.commit()
+
+def insert_domain(conn, resource_url, field_name, code, value):
+    """
+    Inserts a domain record with separate fields for code and value.
+    resource_url is typically the layer (or table) URL.
+    """
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO domains (resource_url, field_name, domain_code, domain_value)
+        VALUES (?, ?, ?, ?)
+    ''', (resource_url, field_name, str(code), value))
+    conn.commit()
+
+def process_field_domain(conn, resource_url, field):
+    """
+    Checks if a field has a domain with coded values.
+    If found, iterates through the codedValues list and inserts each code/value pair into the domains table.
+    """
+    domain = field.get("domain")
+    if domain and "codedValues" in domain:
+        for cv in domain["codedValues"]:
+            code = cv.get("code")
+            name = cv.get("name")
+            insert_domain(conn, resource_url, field.get("name"), code, name)
 
 def fetch_json(url):
     """Fetches JSON data from a URL using the ArcGIS REST API format."""
@@ -103,6 +142,7 @@ def crawl(url, conn, server_url, parent_url=None, visited=None):
     """
     Recursively crawls an ArcGIS REST endpoint and classifies resources.
     Determines 'name' and 'description' based on the top level of the metadata.
+    Also processes domain information for any fields that include a domain.
     """
     if visited is None:
         visited = set()
@@ -116,11 +156,11 @@ def crawl(url, conn, server_url, parent_url=None, visited=None):
     # Classify the resource.
     res_type, res_subtype = classify_resource(url, data, parent_url)
     
-    # Initialize name and description to None.
+    # Initialize name and description.
     resource_name = None
     resource_description = None
 
-    # For type service, extract from metadata:
+    # For type service, extract from metadata.
     if res_type == "service" and data:
         resource_name = data.get("mapName") or data.get("name")
         resource_description = data.get("serviceDescription")
@@ -173,20 +213,24 @@ def crawl(url, conn, server_url, parent_url=None, visited=None):
                 if fields:
                     for field in fields:
                         insert_field(conn, layer_url, field)
+                        process_field_domain(conn, layer_url, field)
             else:
                 insert_resource(conn, layer_url, "layer", None, url, server_url, accessible_layer, layer)
 
-    # Process tables similarly (without extra name/description extraction).
+    # Process tables similarly.
     if "tables" in data:
         for table in data["tables"]:
             table_id = table.get("id")
             table_url = urljoin(url + "/", str(table_id))
             table_data, accessible_table = fetch_json(table_url)
             if accessible_table and table_data:
-                insert_resource(conn, table_url, "table", None, url, server_url, True, table_data)
+                t_name = table_data.get("name")
+                t_description = table_data.get("description")
+                insert_resource(conn, table_url, "table", None, url, server_url, True, table_data, t_name, t_description)
                 if "fields" in table_data:
                     for field in table_data["fields"]:
                         insert_field(conn, table_url, field)
+                        process_field_domain(conn, table_url, field)
             else:
                 insert_resource(conn, table_url, "table", None, url, server_url, accessible_table, table)
 

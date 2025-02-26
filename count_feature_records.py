@@ -120,7 +120,7 @@ def get_feature_layer_record_count(layer_url):
         "f": "json"
     }
     try:
-        response = requests.get(query_url, params=params, timeout=10)
+        response = requests.get(query_url, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
         if "error" in data:

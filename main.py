@@ -185,6 +185,9 @@ def fetch_json(url):
         response = requests.get(url, params={'f': 'json'}, timeout=30)
         response.raise_for_status()
         data = response.json()
+        if "error" in data:
+            print(f"Error encountered in {url}: {data['error']}")
+            return data, False
         return data, True
     except Exception as e:
         print(f"Failed to fetch {url}: {e}")

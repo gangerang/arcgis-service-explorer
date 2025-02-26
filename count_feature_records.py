@@ -120,7 +120,7 @@ def get_feature_layer_record_count(layer_url):
         "f": "json"
     }
     try:
-        response = requests.get(query_url, params=params, timeout=30)
+        response = requests.get(query_url, params=params, timeout=45)
         response.raise_for_status()
         data = response.json()
         if "error" in data:
@@ -155,18 +155,21 @@ def get_feature_layers_for_server(conn, server_url):
     """
     Retrieves feature layers for a server from the resources table.
     We assume that a feature layer is a resource of type 'layer'
-    with metadata that includes a "capabilities" property containing "Query".
+    with metadata that includes a "capabilities" property containing "Query"
+    and that it has associated field records (from the fields table).
     """
     cur = conn.cursor()
     cur.execute("""
-       SELECT url, metadata
-       FROM resources
-       WHERE server_url = ?
-         AND type = 'layer'
-         AND active = 1
-         AND lower(json_extract(metadata, '$.capabilities')) LIKE '%query%'
+       SELECT r.url, r.metadata
+       FROM resources r
+       WHERE r.server_url = ?
+         AND r.type = 'layer'
+         AND r.active = 1
+         AND lower(json_extract(r.metadata, '$.capabilities')) LIKE '%query%'
+         AND EXISTS (SELECT 1 FROM fields f WHERE f.resource_url = r.url)
     """, (server_url,))
     return cur.fetchall()
+
 
 def main():
     servers = load_servers_for_counts()

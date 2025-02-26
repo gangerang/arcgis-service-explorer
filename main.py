@@ -154,14 +154,28 @@ def insert_domain(conn, resource_url, field_name, code, value):
 
 def process_field_domain(conn, resource_url, field):
     """
-    Processes a field's domain (if available) by inserting each coded value into the domains table.
+    Checks if a field has a domain with coded values.
+    If found, iterates through the codedValues list and inserts each code/value pair into the domains table.
+    If the domain is not in the expected format, logs a warning and skips processing.
     """
     domain = field.get("domain")
-    if domain and "codedValues" in domain:
-        for cv in domain["codedValues"]:
+    if not domain:
+        return
+    if not isinstance(domain, dict):
+        print(f"Warning: Unexpected domain format for field '{field.get('name')}' in resource '{resource_url}'. Skipping domain processing.")
+        return
+    coded_values = domain.get("codedValues")
+    if not isinstance(coded_values, list):
+        print(f"Warning: 'codedValues' for field '{field.get('name')}' in resource '{resource_url}' is not a list. Skipping domain processing.")
+        return
+    for cv in coded_values:
+        try:
             code = cv.get("code")
             name_val = cv.get("name")
             insert_domain(conn, resource_url, field.get("name"), code, name_val)
+        except Exception as e:
+            print(f"Error processing codedValues for field '{field.get('name')}' in resource '{resource_url}': {e}")
+
 
 def fetch_json(url):
     """

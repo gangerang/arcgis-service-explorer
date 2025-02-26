@@ -168,7 +168,7 @@ def fetch_json(url):
     Fetches JSON data from a URL using the ArcGIS REST API format.
     """
     try:
-        response = requests.get(url, params={'f': 'json'}, timeout=10)
+        response = requests.get(url, params={'f': 'json'}, timeout=30)
         response.raise_for_status()
         data = response.json()
         return data, True
